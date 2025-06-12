@@ -84,7 +84,7 @@ function getMetadata() {
  * ### Description
  * Update PDF metadata of a PDF blob.
  * 
- * @param {Object} object Object for updading PDF metadata.
+ * @param {Object} object Object for updating PDF metadata.
  * @return {promise} Updated PDF blob.
  */
 function updateMetadata(object) {
