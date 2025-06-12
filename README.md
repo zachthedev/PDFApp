@@ -73,7 +73,7 @@ This library uses the following 3 scopes.
 |||
 | [exportPages](#exportpages) | Export specific pages from a PDF blob. |
 | [getMetadata](#getmetadata) | Get PDF metadata from a PDF blob. |
-| [udpateMetadata](#udpatemetadata) | Update PDF metadata of a PDF blob. |
+| [updateMetadata](#updateMetadata) | Update PDF metadata of a PDF blob. |
 | [reorderPages](#reorderpages) | Reorder pages of a PDF blob. |
 | [mergePDFs](#mergepdfs) | Merge multiple PDF files in a single PDF. |
 | [convertPDFToPng](#convertpdftopng) | Convert PDF pages to PNG images. |
@@ -191,9 +191,9 @@ PDFApp.setPDFBlob(blob).getMetadata()
 
 - This is from my post "[Management of PDF Metadata using Google Apps Script](https://medium.com/google-cloud/management-of-pdf-metadata-using-google-apps-script-60fd41f4fc16)".
 
-<a name="udpatemetadata"></a>
+<a name="updateMetadata"></a>
 
-## udpateMetadata
+## updateMetadata
 
 ![](images/fig3.png)
 
@@ -213,7 +213,7 @@ const object = {
   producer: "sample producer",
 };
 
-PDFApp.setPDFBlob(blob).udpateMetadata(object)
+PDFApp.setPDFBlob(blob).updateMetadata(object)
   .then(newBlob => DriveApp.createFile(newBlob))
   .catch(err => console.log(err));
 ```
