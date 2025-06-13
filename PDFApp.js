@@ -818,7 +818,7 @@ class PDFApp {
       throw new Error("Please an object for adding page numbers.");
     }
     try {
-      const pdfData = this.getPDFObjectFromBlob_(pdfBlob);
+      const pdfData = await this.getPDFObjectFromBlob_(pdfBlob);
       const pdfDoc = await this.PDFLib.PDFDocument.create();
       const pages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
       pages.forEach((page, i) => {
