@@ -408,7 +408,7 @@ class PDFApp {
     if (typeof object != "object" || Object.keys(object).length == 0) {
       throw new Error("Please set valid object for updating PDF metadata.");
     }
-    const pdfData = this.getPDFObjectFromBlob_(pdfBlob);
+    const pdfData = await this.getPDFObjectFromBlob_(pdfBlob);
     const keys = ["title", "subject", "author", "creator", "creationDate", "modificationDate", "keywords", "producer"];
     try {
       for (const k of keys) {
