@@ -378,7 +378,7 @@ class PDFApp {
    */
   async getMetadata(pdfBlob) {
     const keys = ["title", "subject", "author", "creator", "creationDate", "modificationDate", "keywords", "producer"];
-    const pdfData = this.getPDFObjectFromBlob_(pdfBlob);
+    const pdfData = await this.getPDFObjectFromBlob_(pdfBlob);
     try {
       const metadata = keys.reduce((o, k) => ((o[k] = pdfData[`get${k.charAt(0).toUpperCase() + k.slice(1)}`]() || null), o), {});
       metadata.numberOfPages = pdfData.getPageCount();
