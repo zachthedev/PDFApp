@@ -7,6 +7,57 @@
  */
 var appName = "PDFApp";
 
+var _PDFLib_Instance_ = null;
+var _Fontkit_Instance_ = null;
+var _PDFLib_Promise_ = null;
+var _Fontkit_Promise_ = null;
+
+async function _ensurePdfLibLoaded() {
+  if (_PDFLib_Instance_) return _PDFLib_Instance_;
+  if (!_PDFLib_Promise_) {
+    _PDFLib_Promise_ = new Promise(async (resolve, reject) => {
+      try {
+        const cdnjs = "https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js";
+        const originalSetTimeout = globalThis.setTimeout;
+        const originalClearTimeout = globalThis.clearTimeout;
+        globalThis.setTimeout = function(taskFn, delay, ...args) {
+          Utilities.sleep(delay || 1);
+          if (typeof taskFn === 'function') { taskFn(...args); }
+          return 0;
+        };
+        globalThis.clearTimeout = function() { };
+        const jsLibContent = UrlFetchApp.fetch(cdnjs).getContentText();
+        eval(jsLibContent);
+        globalThis.setTimeout = originalSetTimeout;
+        globalThis.clearTimeout = originalClearTimeout;
+        if (!globalThis.PDFLib) throw new Error("Failed to load PDFLib from CDN: globalThis.PDFLib not defined.");
+        _PDFLib_Instance_ = globalThis.PDFLib;
+        delete globalThis.PDFLib;
+        resolve(_PDFLib_Instance_);
+      } catch (e) { _PDFLib_Promise_ = null; console.error("Error loading PDFLib:", e); reject(e); }
+    });
+  }
+  return _PDFLib_Promise_;
+}
+
+async function _ensureFontkitLoaded() {
+  if (_Fontkit_Instance_) return _Fontkit_Instance_;
+  if (!_Fontkit_Promise_) {
+    _Fontkit_Promise_ = new Promise(async (resolve, reject) => {
+      try {
+        const cdnFontkit = "https://unpkg.com/@pdf-lib/fontkit/dist/fontkit.umd.min.js";
+        const jsLibContent = UrlFetchApp.fetch(cdnFontkit).getContentText();
+        eval(jsLibContent);
+        if (!globalThis.fontkit) throw new Error("Failed to load Fontkit from CDN: globalThis.fontkit not defined.");
+        _Fontkit_Instance_ = globalThis.fontkit;
+        delete globalThis.fontkit;
+        resolve(_Fontkit_Instance_);
+      } catch (e) { _Fontkit_Promise_ = null; console.error("Error loading Fontkit:", e); reject(e); }
+    });
+  }
+  return _Fontkit_Promise_;
+}
+
 /**
  * ### Description
  * Give the source PDF blob. This method is used with other methods.
@@ -18,7 +69,7 @@ function setPDFBlob(blob = null) {
   if (!blob || blob.toString() != "Blob" || blob.getContentType() != MimeType.PDF) {
     throw new Error("Please set the source PDF blob using the setPDFBlob method.");
   }
-  this.pdfBlob = blob;
+  this._gPDFA_Blob = blob;
   return this;
 }
 
@@ -33,7 +84,8 @@ function setPDFBlob(blob = null) {
  * @return {PDFApp}
  */
 function useStandardFont(name = null) {
-  this.useStandardFont = name;
+  this._gPDFA_Config = this._gPDFA_Config || {};
+  this._gPDFA_Config.useStandardFont = name;
   return this;
 }
 
@@ -45,7 +97,8 @@ function useStandardFont(name = null) {
  * @return {PDFApp}
  */
 function useCustomFont(blob = null) {
-  this.useCustomFont = blob;
+  this._gPDFA_Config = this._gPDFA_Config || {};
+  this._gPDFA_Config.useCustomFont = blob;
   return this;
 }
 
@@ -56,13 +109,13 @@ function useCustomFont(blob = null) {
  * @param {number[]} pageNumbers Array including the page numbers you want to export.
  * @return {promise} PDF Blob including the exported pages.
  */
-function exportPages(pageNumbers) {
-  if (!this.pdfBlob) {
+async function exportPages(pageNumbers) {
+  if (!this._gPDFA_Blob) {
     throw new Error("Please set the source PDF blob using the setPDFBlob method.");
   }
-  const pdfBlob = this.pdfBlob;
-  const PDFA = new PDFApp(this);
-  return PDFA.exportPages(pdfBlob, pageNumbers);
+  const pdfLib = await _ensurePdfLibLoaded();
+  const PDFA = new PDFApp(this._gPDFA_Config || {}, pdfLib);
+  return PDFA.exportPages(this._gPDFA_Blob, pageNumbers);
 }
 
 /**
@@ -71,29 +124,29 @@ function exportPages(pageNumbers) {
  * 
  * @return {promise} PDF metadata.
  */
-function getMetadata() {
-  if (!this.pdfBlob) {
+async function getMetadata() {
+  if (!this._gPDFA_Blob) {
     throw new Error("Please set the source PDF blob using the setPDFBlob method.");
   }
-  const pdfBlob = this.pdfBlob;
-  const PDFA = new PDFApp(this);
-  return PDFA.getMetadata(pdfBlob);
+  const pdfLib = await _ensurePdfLibLoaded();
+  const PDFA = new PDFApp(this._gPDFA_Config || {}, pdfLib);
+  return PDFA.getMetadata(this._gPDFA_Blob);
 }
 
 /**
  * ### Description
  * Update PDF metadata of a PDF blob.
  * 
- * @param {Object} object Object for updading PDF metadata.
+ * @param {Object} object Object for updating PDF metadata.
  * @return {promise} Updated PDF blob.
  */
-function udpateMetadata(object) {
-  if (!this.pdfBlob) {
+async function updateMetadata(object) {
+  if (!this._gPDFA_Blob) {
     throw new Error("Please set the source PDF blob using the setPDFBlob method.");
   }
-  const pdfBlob = this.pdfBlob;
-  const PDFA = new PDFApp(this);
-  return PDFA.udpateMetadata(pdfBlob, object);
+  const pdfLib = await _ensurePdfLibLoaded();
+  const PDFA = new PDFApp(this._gPDFA_Config || {}, pdfLib);
+  return PDFA.updateMetadata(this._gPDFA_Blob, object);
 }
 
 /**
@@ -103,13 +156,13 @@ function udpateMetadata(object) {
  * @param {Object} object Object for reordering pages of PDF.
  * @return {promise} Updated PDF blob.
  */
-function reorderPages(object) {
-  if (!this.pdfBlob) {
+async function reorderPages(object) {
+  if (!this._gPDFA_Blob) {
     throw new Error("Please set the source PDF blob using the setPDFBlob method.");
   }
-  const pdfBlob = this.pdfBlob;
-  const PDFA = new PDFApp(this);
-  return PDFA.reorderPages(pdfBlob, object);
+  const pdfLib = await _ensurePdfLibLoaded();
+  const PDFA = new PDFApp(this._gPDFA_Config || {}, pdfLib);
+  return PDFA.reorderPages(this._gPDFA_Blob, object);
 }
 
 /**
@@ -119,11 +172,12 @@ function reorderPages(object) {
  * @param {Object[]} pdfBlobs Array including PDF Blobs for merging in a single PDF.
  * @return {promise} Merged PDF Blob.
  */
-function mergePDFs(pdfBlobs) {
+async function mergePDFs(pdfBlobs) {
   if (!pdfBlobs.every(blob => blob && blob.toString() == "Blob" && blob.getContentType() == MimeType.PDF)) {
     throw new Error("Please set the source PDF blobs for merging in a single PDF.");
   }
-  const PDFA = new PDFApp(this);
+  const pdfLib = await _ensurePdfLibLoaded();
+  const PDFA = new PDFApp(this._gPDFA_Config || {}, pdfLib);
   return PDFA.mergePDFs(pdfBlobs);
 }
 
@@ -134,13 +188,13 @@ function mergePDFs(pdfBlobs) {
  *
  * @return {promise} PDF Blob.
  */
-function convertPDFToPng() {
-  if (!this.pdfBlob) {
+async function convertPDFToPng() {
+  if (!this._gPDFA_Blob) {
     throw new Error("Please set the source PDF blob using the setPDFBlob method.");
   }
-  const pdfBlob = this.pdfBlob;
-  const PDFA = new PDFApp(this);
-  return PDFA.convertPDFToPng(pdfBlob);
+  const pdfLib = await _ensurePdfLibLoaded();
+  const PDFA = new PDFApp(this._gPDFA_Config || {}, pdfLib);
+  return PDFA.convertPDFToPng(this._gPDFA_Blob);
 }
 
 /**
@@ -150,13 +204,13 @@ function convertPDFToPng() {
  *
  * @return {promise} Object including the values of PDF Form.
  */
-function getValuesFromPDFForm() {
-  if (!this.pdfBlob) {
+async function getValuesFromPDFForm() {
+  if (!this._gPDFA_Blob) {
     throw new Error("Please set the source PDF blob using the setPDFBlob method.");
   }
-  const pdfBlob = this.pdfBlob;
-  const PDFA = new PDFApp(this);
-  return PDFA.getValuesFromPDFForm(pdfBlob);
+  const pdfLib = await _ensurePdfLibLoaded();
+  const PDFA = new PDFApp(this._gPDFA_Config || {}, pdfLib);
+  return PDFA.getValuesFromPDFForm(this._gPDFA_Blob);
 }
 
 /**
@@ -167,13 +221,14 @@ function getValuesFromPDFForm() {
  * @param {Object} object Object for putting values to PDF Form.
  * @return {promise} Object including the values of PDF Form.
  */
-function setValuesToPDFForm(object) {
-  if (!this.pdfBlob) {
+async function setValuesToPDFForm(object) {
+  if (!this._gPDFA_Blob) {
     throw new Error("Please set the source PDF blob using the setPDFBlob method.");
   }
-  const pdfBlob = this.pdfBlob;
-  const PDFA = new PDFApp(this);
-  return PDFA.setValuesToPDFForm(pdfBlob, object);
+  const pdfLib = await _ensurePdfLibLoaded();
+  const fontkit = (this._gPDFA_Config && this._gPDFA_Config.useCustomFont) ? await _ensureFontkitLoaded() : null;
+  const PDFA = new PDFApp(this._gPDFA_Config || {}, pdfLib, fontkit);
+  return PDFA.setValuesToPDFForm(this._gPDFA_Blob, object);
 }
 
 /**
@@ -185,8 +240,10 @@ function setValuesToPDFForm(object) {
  * @param {Object} object Object for setting.
  * @return {promise} Object including the values of PDF Form.
  */
-function createPDFFormBySlideTemplate(id, object) {
-  const PDFA = new PDFApp(this);
+async function createPDFFormBySlideTemplate(id, object) {
+  const pdfLib = await _ensurePdfLibLoaded();
+  const fontkit = (this._gPDFA_Config && this._gPDFA_Config.useCustomFont) ? await _ensureFontkitLoaded() : null;
+  const PDFA = new PDFApp(this._gPDFA_Config || {}, pdfLib, fontkit);
   return PDFA.createPDFFormBySlideTemplate(id, object);
 }
 
@@ -199,13 +256,14 @@ function createPDFFormBySlideTemplate(id, object) {
  * @param {Object} object Object including the values for embedding objects.
  * @return {promise} PDF Blob.
  */
-function embedObjects(object) {
-  if (!this.pdfBlob) {
+async function embedObjects(object) {
+  if (!this._gPDFA_Blob) {
     throw new Error("Please set the source PDF blob using the setPDFBlob method.");
   }
-  const pdfBlob = this.pdfBlob;
-  const PDFA = new PDFApp(this);
-  return PDFA.embedObjects(pdfBlob, object);
+  const pdfLib = await _ensurePdfLibLoaded();
+  const fontkit = await _ensureFontkitLoaded(); 
+  const PDFA = new PDFApp(this._gPDFA_Config || {}, pdfLib, fontkit);
+  return PDFA.embedObjects(this._gPDFA_Blob, object);
 }
 
 /**
@@ -216,13 +274,14 @@ function embedObjects(object) {
  * @param {Object} object Object including the values for inserting header and footer.
  * @return {promise} PDF Blob.
  */
-function insertHeaderFooter(object) {
-  if (!this.pdfBlob) {
+async function insertHeaderFooter(object) {
+  if (!this._gPDFA_Blob) {
     throw new Error("Please set the source PDF blob using the setPDFBlob method.");
   }
-  const pdfBlob = this.pdfBlob;
-  const PDFA = new PDFApp(this);
-  return PDFA.insertHeaderFooter(pdfBlob, object);
+  const pdfLib = await _ensurePdfLibLoaded();
+  const fontkit = (this._gPDFA_Config && this._gPDFA_Config.useCustomFont) ? await _ensureFontkitLoaded() : null;
+  const PDFA = new PDFApp(this._gPDFA_Config || {}, pdfLib, fontkit);
+  return PDFA.insertHeaderFooter(this._gPDFA_Blob, object);
 }
 
 /**
@@ -231,13 +290,13 @@ function insertHeaderFooter(object) {
  *
  * @return {promise} PDF Blobs.
  */
-function splitPDF() {
-  if (!this.pdfBlob) {
+async function splitPDF() {
+  if (!this._gPDFA_Blob) {
     throw new Error("Please set the source PDF blob using the setPDFBlob method.");
   }
-  const pdfBlob = this.pdfBlob;
-  const PDFA = new PDFApp(this);
-  return PDFA.splitPDF(pdfBlob);
+  const pdfLib = await _ensurePdfLibLoaded();
+  const PDFA = new PDFApp(this._gPDFA_Config || {}, pdfLib);
+  return PDFA.splitPDF(this._gPDFA_Blob);
 }
 
 /**
@@ -247,13 +306,13 @@ function splitPDF() {
  * @param {Object} object Object including the format of page number.
  * @return {promise} PDF Blobs.
  */
-function addPageNumbers(object) {
-  if (!this.pdfBlob) {
+async function addPageNumbers(object) {
+  if (!this._gPDFA_Blob) {
     throw new Error("Please set the source PDF blob using the setPDFBlob method.");
   }
-  const pdfBlob = this.pdfBlob;
-  const PDFA = new PDFApp(this);
-  return PDFA.addPageNumbers(pdfBlob, object);
+  const pdfLib = await _ensurePdfLibLoaded();
+  const PDFA = new PDFApp(this._gPDFA_Config || {}, pdfLib);
+  return PDFA.addPageNumbers(this._gPDFA_Blob, object);
 }
 
 
@@ -270,15 +329,13 @@ class PDFApp {
    *
    * @return {void}
    */
-  constructor(e) {
-    this.cdnjs = "https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js"; // or "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"
-    this.cdnFontkit = "https://unpkg.com/@pdf-lib/fontkit/dist/fontkit.umd.min.js";
-    this.loadPdfLib_();
-    if (e.useCustomFont && e.useCustomFont.toString() == "Blob") {
-      this.loadFontkit_();
-      this.customFont = e.useCustomFont;
-    } else if (e.useStandardFont && typeof e.useStandardFont == "string") {
-      this.standardFont = e.useStandardFont;
+  constructor(config, pdfLib, fontkitInstance) {
+    this.PDFLib = pdfLib;
+    this.fontkit = fontkitInstance;
+    if (config && config.useCustomFont && config.useCustomFont.toString() == "Blob") {
+      this.customFont = config.useCustomFont;
+    } else if (config && config.useStandardFont && typeof config.useStandardFont == "string") {
+      this.standardFont = config.useStandardFont;
     }
   }
 
@@ -291,26 +348,24 @@ class PDFApp {
    * @param {number[]} pageNumbers Array including the page numbers you want to export.
    * @return {promise} PDF Blob including the exported pages.
    */
-  exportPages(pdfBlob, pageNumbers) {
+  async exportPages(pdfBlob, pageNumbers) {
     if (!pageNumbers || !Array.isArray(pageNumbers) || pageNumbers.length == 0) {
       throw new Error("Please set the page numbers you want to export.");
     }
-    return new Promise(async (resolve, reject) => {
-      try {
-        const pdfData = await this.getPDFObjectFromBlob_(pdfBlob).catch(err => reject(err));
-        const pdfDoc = await this.PDFLib.PDFDocument.create();
-        const pages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
-        pages.forEach((page, i) => {
-          if (pageNumbers.includes(i + 1)) {
-            pdfDoc.addPage(page);
-          }
-        });
-        const bytes = await pdfDoc.save();
-        resolve(Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`));
-      } catch (err) {
-        reject(err);
-      }
-    });
+    try {
+      const pdfData = this.getPDFObjectFromBlob_(pdfBlob);
+      const pdfDoc = await this.PDFLib.PDFDocument.create();
+      const pages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
+      pages.forEach((page, i) => {
+        if (pageNumbers.includes(i + 1)) {
+          pdfDoc.addPage(page);
+        }
+      });
+      const bytes = await pdfDoc.save();
+      return Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
+    } catch (err) {
+      throw err;
+    }
   }
 
   /**
@@ -321,25 +376,23 @@ class PDFApp {
    * @param {Object} pdfBlob Blob of PDF data by retrieving with Google Apps Script.
    * @return {promise} PDF metadata.
    */
-  getMetadata(pdfBlob) {
-    return new Promise(async (resolve, reject) => {
-      const keys = ["title", "subject", "author", "creator", "creationDate", "modificationDate", "keywords", "producer"];
-      const pdfData = await this.getPDFObjectFromBlob_(pdfBlob).catch(err => reject(err));
-      try {
-        const metadata = keys.reduce((o, k) => ((o[k] = pdfData[`get${k.charAt(0).toUpperCase() + k.slice(1)}`]() || null), o), {});
-        metadata.numberOfPages = pdfData.getPageCount();
-        const pdfDoc = await this.PDFLib.PDFDocument.create();
-        const pages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
-        metadata.pageInfo = pages.map((page, i) => {
-          const { width, height } = page.getSize();
-          const { x, y } = page.getPosition();
-          return { page: i + 1, pageWidth: width, pageHeight: height, defaultPositionX: x, defaultPositionY: y };
-        });
-        resolve(metadata);
-      } catch (err) {
-        reject(err);
-      }
-    });
+  async getMetadata(pdfBlob) {
+    const keys = ["title", "subject", "author", "creator", "creationDate", "modificationDate", "keywords", "producer"];
+    const pdfData = this.getPDFObjectFromBlob_(pdfBlob);
+    try {
+      const metadata = keys.reduce((o, k) => ((o[k] = pdfData[`get${k.charAt(0).toUpperCase() + k.slice(1)}`]() || null), o), {});
+      metadata.numberOfPages = pdfData.getPageCount();
+      const pdfDoc = await this.PDFLib.PDFDocument.create();
+      const pages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
+      metadata.pageInfo = pages.map((page, i) => {
+        const { width, height } = page.getSize();
+        const { x, y } = page.getPosition();
+        return { page: i + 1, pageWidth: width, pageHeight: height, defaultPositionX: x, defaultPositionY: y };
+      });
+      return metadata;
+    } catch (err) {
+      throw err;
+    }
   }
 
   /**
@@ -351,49 +404,34 @@ class PDFApp {
    * @param {Object} object Object including the values for updating metadata.
    * @return {promise} PDF Blob.
    */
-  udpateMetadata(pdfBlob, object) {
+  async updateMetadata(pdfBlob, object) {
     if (typeof object != "object" || Object.keys(object).length == 0) {
       throw new Error("Please set valid object for updating PDF metadata.");
     }
-    const self = this;
-    return new Promise(async (resolve, reject) => {
-      const pdfData = await self.getPDFObjectFromBlob_(pdfBlob).catch(err => reject(err));
-      const keys = ["title", "subject", "author", "creator", "creationDate", "modificationDate", "keywords", "producer"];
-      try {
-        Promise.all(
-          keys.map((k) =>
-            new Promise(async (r, rj) => {
-              try {
-                if (object.hasOwnProperty(k)) {
-                  const f = `set${k.charAt(0).toUpperCase() + k.slice(1)}`;
-                  if (k == "title") {
-                    await pdfData[f](...object[k]);
-                  } else {
-                    if (["creationDate", "modificationDate"].includes(k)) {
-                      object[k] = new Date(object[k]);
-                    } else if (k == "keywords") {
-                      object[k] = JSON.parse(JSON.stringify(object[k]));
-                    }
-                    await pdfData[f](object[k]);
-                  }
-                  r("Done");
-                }
-              } catch (err) {
-                rj(err);
-              }
-            })
-          )
-        )
-          .then(async (_) => {
-            const bytes = await pdfData.save();
-            const newBlob = Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
-            resolve(newBlob);
-          })
-          .catch((err) => console.log(err));
-      } catch (err) {
-        reject(err);
+    const pdfData = this.getPDFObjectFromBlob_(pdfBlob);
+    const keys = ["title", "subject", "author", "creator", "creationDate", "modificationDate", "keywords", "producer"];
+    try {
+      for (const k of keys) {
+        if (object.hasOwnProperty(k)) {
+          const f = `set${k.charAt(0).toUpperCase() + k.slice(1)}`;
+          if (k == "title") {
+            pdfData[f](...(Array.isArray(object[k]) ? object[k] : [object[k]]));
+          } else {
+            let valueToSet = object[k];
+            if (["creationDate", "modificationDate"].includes(k)) {
+              valueToSet = new Date(object[k]);
+            } else if (k == "keywords") {
+              valueToSet = Array.isArray(object[k]) ? object[k] : [object[k]];
+            }
+            pdfData[f](valueToSet);
+          }
+        }
       }
-    });
+      const bytes = await pdfData.save();
+      return Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
+    } catch (err) {
+      throw err;
+                }
   }
 
   /**
@@ -405,30 +443,28 @@ class PDFApp {
    * @param {Object} object Object including the values for reordering pages.
    * @return {promise} PDF Blob.
    */
-  reorderPages(pdfBlob, object) {
+  async reorderPages(pdfBlob, object) {
     if (typeof object != "object" || Object.keys(object).length == 0) {
       throw new Error("Please set valid object for reordering PDF pages.");
     }
-    const self = this;
-    return new Promise(async (resolve, reject) => {
+    try {
       const { newOrderOfpages, ignoreSkippedPages } = object;
-      const pdfData = await self.getPDFObjectFromBlob_(pdfBlob).catch(err => reject(err));
+      const pdfData = this.getPDFObjectFromBlob_(pdfBlob);
       const numberOfPages = pdfData.getPageCount();
       const maxPage = Math.max(...newOrderOfpages);
       if (numberOfPages < maxPage || numberOfPages < newOrderOfpages.length) {
-        reject("Maximum page in the order of pages is over than the maximum page of the original PDF file.");
+        throw new Error("Maximum page in the order of pages is over than the maximum page of the original PDF file.");
       }
       let skippedPages = [];
       if (!ignoreSkippedPages && numberOfPages > newOrderOfpages.length) {
         skippedPages = [...Array(numberOfPages)].map((_, i) => i + 1).filter(e => !newOrderOfpages.includes(e));
       }
-      const pdfDoc = await self.PDFLib.PDFDocument.create();
+      const pdfDoc = await this.PDFLib.PDFDocument.create();
       const pages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
       [...newOrderOfpages, ...skippedPages].forEach(e => pdfDoc.addPage(pages[e - 1]));
       const bytes = await pdfDoc.save();
-      const newBlob = Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
-      resolve(newBlob);
-    });
+      return Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
+    } catch (err) { throw err; }
   }
 
   /**
@@ -439,24 +475,20 @@ class PDFApp {
    * @param {Object[]} pdfBlobs Array including PDF Blobs for merging in a single PDF.
    * @return {promise} PDF Blob.
    */
-  mergePDFs(pdfBlobs) {
-    const self = this;
-    return new Promise(async (resolve, reject) => {
-      try {
-        const data = pdfBlobs.map(blob => new Uint8Array(blob.getBytes()));
-        const pdfDoc = await self.PDFLib.PDFDocument.create();
-        for (let i = 0; i < data.length; i++) {
-          const pdfData = await self.PDFLib.PDFDocument.load(data[i]);
-          const pages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
-          pages.forEach(page => pdfDoc.addPage(page));
-        }
-        const bytes = await pdfDoc.save();
-        const newBlob = Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, "new_PDFFile.pdf");
-        resolve(newBlob);
-      } catch (err) {
-        reject(err);
+  async mergePDFs(pdfBlobs) {
+    try {
+      const data = pdfBlobs.map(blob => new Uint8Array(blob.getBytes()));
+      const pdfDoc = await this.PDFLib.PDFDocument.create();
+      for (let i = 0; i < data.length; i++) {
+        const pdfData = await this.PDFLib.PDFDocument.load(data[i]);
+        const pages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
+        pages.forEach(page => pdfDoc.addPage(page));
       }
-    });
+      const bytes = await pdfDoc.save();
+      return Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, "new_PDFFile.pdf");
+    } catch (err) {
+      throw err;
+    }
   }
 
   /**
@@ -467,45 +499,41 @@ class PDFApp {
    * @param {Object} pdfBlob Blob of PDF data.
    * @return {promise} PDF Blob.
    */
-  convertPDFToPng(pdfBlob) {
-    const self = this;
-    return new Promise(async (resolve, reject) => {
-      try {
-        const pdfData = await self.getPDFObjectFromBlob_(pdfBlob).catch(err => reject(err));
-        const pageLength = pdfData.getPageCount();
-        console.log(`Total pages: ${pageLength}`);
-        const obj = { imageBlobs: [], fileIds: [] };
-        const token = ScriptApp.getOAuthToken();
-        for (let i = 0; i < pageLength; i++) {
-          console.log(`Processing page: ${i + 1}`);
-          const pdfDoc = await self.PDFLib.PDFDocument.create();
-          const [page] = await pdfDoc.copyPages(pdfData, [i]);
-          pdfDoc.addPage(page);
-          const bytes = await pdfDoc.save();
-          const blob = Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `temp_page${i + 1}.pdf`);
-          const id = DriveApp.createFile(blob).getId();
-          Utilities.sleep(3000); // This is used for preparing the thumbnail of the created file.
-          const res = UrlFetchApp.fetch(
-            `https://drive.google.com/thumbnail?id=${id}&sz=w1000`,
-            {
-              headers: { authorization: "Bearer " + token },
-              muteHttpExceptions: true
-            }
-          );
-          if (res.getResponseCode() != 200) {
-            reject(res.getContentText());
-            return;
+  async convertPDFToPng(pdfBlob) {
+    try {
+      const pdfData = this.getPDFObjectFromBlob_(pdfBlob);
+      const pageLength = pdfData.getPageCount();
+      console.log(`Total pages: ${pageLength}`);
+      const obj = { imageBlobs: [], fileIds: [] };
+      const token = ScriptApp.getOAuthToken();
+      for (let i = 0; i < pageLength; i++) {
+        console.log(`Processing page: ${i + 1}`);
+        const pdfDoc = await this.PDFLib.PDFDocument.create();
+        const [page] = await pdfDoc.copyPages(pdfData, [i]);
+        pdfDoc.addPage(page);
+        const bytes = await pdfDoc.save();
+        const blob = Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `temp_page${i + 1}.pdf`);
+        const id = DriveApp.createFile(blob).getId();
+        Utilities.sleep(3000); // This is used for preparing the thumbnail of the created file.
+        const res = UrlFetchApp.fetch(
+          `https://drive.google.com/thumbnail?id=${id}&sz=w1000`,
+          {
+            headers: { authorization: "Bearer " + token },
+            muteHttpExceptions: true
           }
-          const imageBlob = res.getBlob().setName(`page${i + 1}.png`);
-          obj.imageBlobs.push(imageBlob);
-          obj.fileIds.push(id);
+        );
+        if (res.getResponseCode() != 200) {
+          throw new Error(`Failed to get thumbnail: ${res.getContentText()}`);
         }
-        obj.fileIds.forEach(id => DriveApp.getFileById(id).setTrashed(true));
-        resolve(obj.imageBlobs);
-      } catch (err) {
-        reject(err);
+        const imageBlob = res.getBlob().setName(`page${i + 1}.png`);
+        obj.imageBlobs.push(imageBlob);
+        obj.fileIds.push(id);
       }
-    });
+      obj.fileIds.forEach(id => DriveApp.getFileById(id).setTrashed(true));
+      return obj.imageBlobs;
+    } catch (err) {
+      throw err;
+    }
   }
 
   /**
@@ -516,39 +544,34 @@ class PDFApp {
    * @param {Object} pdfBlob Blob of PDF data.
    * @return {promise} Object including the values of PDF Form.
    */
-  getValuesFromPDFForm(pdfBlob) {
-    const self = this;
-    return new Promise(async (resolve, reject) => {
-      try {
-        const pdfData = await self.getPDFObjectFromBlob_(pdfBlob).catch(err => reject(err));
-        const form = pdfData.getForm();
-        const { PDFTextField, PDFDropdown, PDFCheckBox, PDFRadioGroup } = self.PDFLib;
-        const obj = form.getFields().map(function (f) {
-          const retObj = { name: f.getName() };
-          if (f instanceof PDFTextField) {
-            retObj.value = f.getText();
-            retObj.type = "Textbox";
-          } else if (f instanceof PDFDropdown) {
-            retObj.value = f.getSelected();
-            retObj.options = f.getOptions();
-            retObj.type = "Dropdown";
-          } else if (f instanceof PDFCheckBox) {
-            retObj.value = f.isChecked();
-            retObj.type = "Checkbox";
-          } else if (f instanceof PDFRadioGroup) {
-            retObj.value = f.getSelected();
-            retObj.options = f.getOptions();
-            retObj.type = "Radiobutton";
-          } else {
-            retObj.type = "Unsupported type";
-          }
-          return retObj;
-        });
-        resolve(obj);
-      } catch (err) {
-        reject(err);
-      }
-    });
+  async getValuesFromPDFForm(pdfBlob) {
+    try {
+      const pdfData = this.getPDFObjectFromBlob_(pdfBlob);
+      const form = pdfData.getForm();
+      const { PDFTextField, PDFDropdown, PDFCheckBox, PDFRadioGroup } = this.PDFLib;
+      const obj = form.getFields().map(function (f) {
+        const retObj = { name: f.getName() };
+        if (f instanceof PDFTextField) {
+          retObj.value = f.getText();
+          retObj.type = "Textbox";
+        } else if (f instanceof PDFDropdown) {
+          retObj.value = f.getSelected();
+          retObj.options = f.getOptions();
+          retObj.type = "Dropdown";
+        } else if (f instanceof PDFCheckBox) {
+          retObj.value = f.isChecked();
+          retObj.type = "Checkbox";
+        } else if (f instanceof PDFRadioGroup) {
+          retObj.value = f.getSelected();
+          retObj.options = f.getOptions();
+          retObj.type = "Radiobutton";
+        } else {
+          retObj.type = "Unsupported type";
+        }
+        return retObj;
+      });
+      return obj;
+    } catch (err) { throw err; }
   }
 
   /**
@@ -560,44 +583,40 @@ class PDFApp {
    * @param {Object} object Object for putting values to PDF Form.
    * @return {promise} Object including the values of PDF Form.
    */
-  setValuesToPDFForm(pdfBlob, object) {
+  async setValuesToPDFForm(pdfBlob, object) {
     if (!object.values || !Array.isArray(object.values)) {
       throw new Error("Please set valid values.");
     }
-    const self = this;
-    return new Promise(async (resolve, reject) => {
-      try {
-        const pdfData = await self.getPDFObjectFromBlob_(pdfBlob).catch(err => reject(err));
-        const form = pdfData.getForm();
-        if (self.standardFont || self.customFont) {
-          await self.setCustomFont_(pdfData, form, { standardFont: self.standardFont, customFont: self.customFont });
-        }
-        const { PDFTextField, PDFDropdown, PDFCheckBox, PDFRadioGroup } = self.PDFLib;
-        for (let { name, value } of object.values) {
-          const field = form.getField(name);
-          if (field instanceof PDFTextField) {
-            field.setText(value);
-          } else if (field instanceof PDFDropdown) {
-            if (field.isMultiselect()) {
-              for (let v of value) {
-                field.select(v);
-              }
-            } else {
-              field.select(value);
+    try {
+      const pdfData = this.getPDFObjectFromBlob_(pdfBlob);
+      const form = pdfData.getForm();
+      if (this.standardFont || this.customFont) {
+        this.setCustomFont_(pdfData, form, { standardFont: this.standardFont, customFont: this.customFont });
+      }
+      const { PDFTextField, PDFDropdown, PDFCheckBox, PDFRadioGroup } = this.PDFLib;
+      for (let { name, value } of object.values) {
+        const field = form.getField(name);
+        if (field instanceof PDFTextField) {
+          field.setText(value);
+        } else if (field instanceof PDFDropdown) {
+          if (field.isMultiselect()) {
+            for (let v of value) {
+              field.select(v);
             }
-          } else if (field instanceof PDFCheckBox) {
-            field[value ? "check" : "uncheck"]();
-          } else if (field instanceof PDFRadioGroup) {
+          } else {
             field.select(value);
           }
+        } else if (field instanceof PDFCheckBox) {
+          field[value ? "check" : "uncheck"]();
+        } else if (field instanceof PDFRadioGroup) {
+          field.select(value);
         }
-        const bytes = await pdfData.save();
-        const newBlob = Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
-        resolve(newBlob);
-      } catch (e) {
-        reject(e);
       }
-    });
+      const bytes = await pdfData.save();
+      return Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
+    } catch (e) {
+      throw e;
+    }
   }
 
   /**
@@ -609,23 +628,18 @@ class PDFApp {
    * @param {Object} object Object for setting.
    * @return {promise} Object including the values of PDF Form.
    */
-  createPDFFormBySlideTemplate(id, object) {
+  async createPDFFormBySlideTemplate(id, object) {
     if (!id || id == "") {
       throw new Error("Please set the file ID of Google Slide including the template for PDF Form.");
     }
     if (!object || !object.values || !Array.isArray(object.values) || object.values.length == 0) {
       throw new Error("Please set valid object for creating PDF Form from Google Slide template.");
     }
-    const self = this;
-    return new Promise(async (resolve, reject) => {
-      try {
-        const obj = self.getObjectFromSlide_(id, object.values);
-        const newBlob = await self.createFields_(self, obj);
-        resolve(newBlob);
-      } catch (e) {
-        reject(e);
-      }
-    });
+    try {
+      const obj = this.getObjectFromSlide_(id, object.values);
+      const newBlob = await this.createFields_(this, obj);
+      return newBlob;
+    } catch (e) { throw e; }
   }
 
   /**
@@ -637,117 +651,108 @@ class PDFApp {
    * @param {Object} object Object including the values for embedding objects.
    * @return {promise} PDF Blob.
    */
-  embedObjects(pdfBlob, object) {
+  async embedObjects(pdfBlob, object) {
     if (!object || typeof object != "object") {
       throw new Error("Please an object for embeddig the objects.");
     }
-    const self = this;
-    return new Promise(async (resolve, reject) => {
-      try {
-        const { updatedObject, customFontCheck } = self.updateObject_(object);
-        const pdfData = await self.getPDFObjectFromBlob_(pdfBlob).catch(err => reject(err));
-        const numberOfPages = pdfData.getPageCount();
-        const pdfDoc = await self.PDFLib.PDFDocument.create();
-        if (customFontCheck) {
-          self.loadFontkit_();
-          pdfDoc.registerFontkit(this.fontkit);
-        }
-        const pages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
-        for (let i = 0; i < pages.length; i++) {
-          const page = pages[i];
-          const forPage = updatedObject[`page${i + 1}`];
-          if (forPage) {
-            for (let j = 0; j < forPage.length; j++) {
-              const o = forPage[j];
-              if (o.imageFileId) {
-                const image = await pdfDoc[o.method](o.imageBytes);
-                if (o.scale) {
-                  const updatedImage = image.scale(o.scale);
-                  o.width = o.width || updatedImage.width;
-                  o.height = o.height || updatedImage.height;
-                } else {
-                  o.width = o.width || image.width;
-                  o.height = o.height || image.height;
-                }
-                delete o.imageBytes;
-                delete o.method;
-                delete o.imageFileId;
-                delete o.scale;
-                page.drawImage(image, o);
-              } else if (o.text) {
-                if (o.standardFont || o.customFont) {
-                  o.font = await pdfDoc.embedFont(o.standardFont ? this.PDFLib.StandardFonts[o.standardFont] : o.customFont);
-                }
-                page.drawText(o.text, o);
+    try {
+      const { updatedObject, customFontCheck } = this.updateObject_(object);
+      const pdfData = this.getPDFObjectFromBlob_(pdfBlob);
+      const pdfDoc = await this.PDFLib.PDFDocument.create();
+      if (customFontCheck && this.fontkit) {
+        pdfDoc.registerFontkit(this.fontkit);
+      }
+      const pages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i];
+        const forPage = updatedObject[`page${i + 1}`];
+        if (forPage) {
+          for (let j = 0; j < forPage.length; j++) {
+            const o = forPage[j];
+            if (o.imageFileId) {
+              const image = await pdfDoc[o.method](o.imageBytes);
+              if (o.scale) {
+                const updatedImage = image.scale(o.scale);
+                o.width = o.width || updatedImage.width;
+                o.height = o.height || updatedImage.height;
+              } else {
+                o.width = o.width || image.width;
+                o.height = o.height || image.height;
               }
+              delete o.imageBytes;
+              delete o.method;
+              delete o.imageFileId;
+              delete o.scale;
+              page.drawImage(image, o);
+            } else if (o.text) {
+              if (o.standardFont || o.customFont) {
+                o.font = await pdfDoc.embedFont(o.standardFont ? this.PDFLib.StandardFonts[o.standardFont] : o.customFont);
+              }
+              page.drawText(o.text, o);
             }
           }
-          pdfDoc.addPage(page);
         }
-        const bytes = await pdfDoc.save();
-        const newBlob = Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
-        resolve(newBlob);
-      } catch (e) {
-        reject(e);
-      }
-    });
+        pdfDoc.addPage(page); 
+      }                           
+      const bytes = await pdfDoc.save();
+      return Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
+    } catch (e) { throw e; }
   }
+
 
   /**
    * ### Description
    * Insert header and/or footer into PDF blob.
    *
-   * @param {Object} pdfBlob Blob of PDF data for embedding objects.
+   * @param {Object} pdfBlob Blob of PDF data.
    * @param {Object} object Object including the values for inserting header and footer.
    * @return {promise} PDF Blob.
    */
-  insertHeaderFooter(pdfBlob, object) {
+  async insertHeaderFooter(pdfBlob, object) {
     if (!object || typeof object != "object") {
       throw new Error("Please an object for embeddig the objects.");
     }
-    let self = this;
-    return new Promise(async function (resolve, reject) {
-      try {
-        const pdfDoc = await self.PDFLib.PDFDocument.create();
-        const form = pdfDoc.getForm();
-        let font = null;
-        if (self.standardFont || self.customFont) {
-          await self.setCustomFont_(pdfDoc, form, { standardFont: self.standardFont, customFont: self.customFont });
-          font = await pdfDoc.embedFont(self.standardFont ? self.PDFLib.StandardFonts[self.standardFont] : new Uint8Array(self.customFont.getBytes()));
-        }
-        const pdfData = await self.getPDFObjectFromBlob_(pdfBlob).catch(err => reject(err));
-        const numberOfPages = pdfData.getPageCount();
-        const pages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
-        const { header, footer } = object;
-        const headers = header ? Object.entries(header).map(([k, v]) => [`header.${k}`, v]) : [];
-        const footers = footer ? Object.entries(footer).map(([k, v]) => [`footer.${k}`, v]) : [];
-        const sortOrder = ["LEFT", "CENTER", "RIGHT"];
-        [footers, headers].forEach((f, _, x) => f.sort((a, b) => {
-          const i1 = sortOrder.findIndex(e => a[0].includes(e.toLowerCase()));
-          const i2 = sortOrder.findIndex(e => b[0].includes(e.toLowerCase()));
-          const vlen = x.length;
-          return (i1 > -1 ? i1 : vlen) - (i2 > -1 ? i2 : vlen);
-        }));
-        const alignObj = { "center": "Center", "left": "Left", "right": "Right" };
-        for (let i = 0; i < numberOfPages; i++) {
-          const pageNumber = i + 1;
-          const page = pdfDoc.addPage(pages[i]);
-          const pageHeight = page.getHeight();
-          const pageWidth = page.getWidth();
-          if (headers.length > 0) {
-            const sizeWidthHead = pageWidth / (headers.length);
-            for (let j = 0; j < headers.length; j++) {
-              const [k, v] = headers[j];
-              const o = {
-                borderWidth: v.borderWidth || 0,
-                x: j * sizeWidthHead,
-                y: pageHeight - ((v.yOffset || 0) + (v.height || 20)),
-                width: sizeWidthHead,
-                height: v.height || 30,
-                ...v,
-                font,
-              };
-              await self.addHeaderFooterFields_(self, { page, form, pageNumber, k, v, o, alignObj, font });
+    try {
+      const pdfDoc = await this.PDFLib.PDFDocument.create();
+      const form = pdfDoc.getForm();
+      let embeddedFont = null;
+      if (this.standardFont || this.customFont) {
+        this.setCustomFont_(pdfDoc, form, { standardFont: this.standardFont, customFont: this.customFont });
+        embeddedFont = await pdfDoc.embedFont(this.standardFont ? this.PDFLib.StandardFonts[this.standardFont] : new Uint8Array(this.customFont.getBytes()));
+      }
+      const pdfData = this.getPDFObjectFromBlob_(pdfBlob);
+      const numberOfPages = pdfData.getPageCount();
+      const pages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
+      const { header, footer } = object;
+      const headers = header ? Object.entries(header).map(([k, v]) => [`header.${k}`, v]) : [];
+      const footers = footer ? Object.entries(footer).map(([k, v]) => [`footer.${k}`, v]) : [];
+      const sortOrder = ["LEFT", "CENTER", "RIGHT"];
+      [footers, headers].forEach((f, _, x) => f.sort((a, b) => {
+        const i1 = sortOrder.findIndex(e => a[0].includes(e.toLowerCase()));
+        const i2 = sortOrder.findIndex(e => b[0].includes(e.toLowerCase()));
+        const vlen = x.length;
+        return (i1 > -1 ? i1 : vlen) - (i2 > -1 ? i2 : vlen);
+      }));
+      const alignObj = { "center": "Center", "left": "Left", "right": "Right" };
+      for (let i = 0; i < numberOfPages; i++) {
+        const pageNumber = i + 1;
+        const page = pdfDoc.addPage(pages[i]);
+        const pageHeight = page.getHeight();
+        const pageWidth = page.getWidth();
+        if (headers.length > 0) {
+          const sizeWidthHead = pageWidth / (headers.length);
+          for (let j = 0; j < headers.length; j++) {
+            const [k, v] = headers[j];
+            const o = {
+               borderWidth: v.borderWidth || 0,
+               x: j * sizeWidthHead,
+               y: pageHeight - ((v.yOffset || 0) + (v.height || 20)),
+               width: sizeWidthHead,
+               height: v.height || 30,
+               ...v,
+               font: embeddedFont
+            };
+            await this.addHeaderFooterFields_(this, { page, form, pageNumber, k, v, o, alignObj, font: embeddedFont });
             }
           }
           if (footers.length > 0) {
@@ -755,25 +760,23 @@ class PDFApp {
             for (let j = 0; j < footers.length; j++) {
               const [k, v] = footers[j];
               const o = {
-                borderWidth: v.borderWidth || 0,
-                x: j * sizeWidthFoot,
-                y: v.yOffset || 0,
-                width: sizeWidthFoot,
-                height: v.height || 30,
-                ...v,
-                font,
-              };
-              await self.addHeaderFooterFields_(self, { page, form, pageNumber, k, v, o, alignObj, font });
+               borderWidth: v.borderWidth || 0,
+               x: j * sizeWidthFoot,
+               y: v.yOffset || 0,
+               width: sizeWidthFoot,
+               height: v.height || 30,
+               ...v,
+               font: embeddedFont
+            };
+              await this.addHeaderFooterFields_(this, { page, form, pageNumber, k, v, o, alignObj, font: embeddedFont });
             }
           }
         }
         const bytes = await pdfDoc.save();
-        const newBlob = Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
-        resolve(newBlob);
-      } catch (e) {
-        reject(e);
-      }
-    });
+        return Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
+    } catch (e) {
+      throw e;
+    }
   }
 
   /**
@@ -781,30 +784,25 @@ class PDFApp {
    * Split each page of a PDF to an individual PDF file.
    *
    * @param {Object} pdfBlob Blob of PDF data.
-   * @return {promise} PDF Blob.
+   * @return {promise} Array of PDF Blobs.
    */
-  splitPDF(pdfBlob) {
-    const self = this;
-    return new Promise(async (resolve, reject) => {
-      try {
-        const pdfData = await self.getPDFObjectFromBlob_(pdfBlob).catch(err => reject(err));
-        const pageLength = pdfData.getPageCount();
-        console.log(`Total pages: ${pageLength}`);
-        const pdfBlobs = [];
-        for (let i = 0; i < pageLength; i++) {
-          console.log(`Processing page: ${i + 1}`);
-          const pdfDoc = await self.PDFLib.PDFDocument.create();
-          const [page] = await pdfDoc.copyPages(pdfData, [i]);
-          pdfDoc.addPage(page);
-          const bytes = await pdfDoc.save();
-          const blob = Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `page${i + 1}.pdf`);
-          pdfBlobs.push(blob);
-        }
-        resolve(pdfBlobs);
-      } catch (err) {
-        reject(err);
+  async splitPDF(pdfBlob) {
+    try {
+      const pdfData = this.getPDFObjectFromBlob_(pdfBlob);
+      const pageLength = pdfData.getPageCount();
+      console.log(`Total pages: ${pageLength}`);
+      const pdfBlobs = [];
+      for (let i = 0; i < pageLength; i++) {
+        console.log(`Processing page: ${i + 1}`);
+        const pdfDoc = await this.PDFLib.PDFDocument.create();
+        const [page] = await pdfDoc.copyPages(pdfData, [i]);
+        pdfDoc.addPage(page);
+        const bytes = await pdfDoc.save();
+        const blob = Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `page${i + 1}.pdf`);
+        pdfBlobs.push(blob);
       }
-    });
+      return pdfBlobs;
+    } catch (err) { throw err; }
   }
 
   /**
@@ -815,35 +813,29 @@ class PDFApp {
    * @param {Object} object Object including the format of page number.
    * @return {promise} PDF Blobs.
    */
-  addPageNumbers(pdfBlob, object) {
+  async addPageNumbers(pdfBlob, object) {
     if (!object || typeof object != "object" || !["size", "x", "y"].every(e => e in object)) {
       throw new Error("Please an object for adding page numbers.");
     }
-    const self = this;
-    return new Promise(async (resolve, reject) => {
-      try {
-        const pdfData = await self.getPDFObjectFromBlob_(pdfBlob).catch(err => reject(err));
-        const pdfDoc = await self.PDFLib.PDFDocument.create();
-        (await pdfDoc.copyPages(pdfData, pdfData.getPageIndices()))
-          .forEach((page, i) => {
-            if (isNaN(object.x)) {
-              const { width } = page.getSize();
-              const obj = { center: width / 2, left: 20, right: width - 20 };
-              const pageFormatObj = { ...object };
-              pageFormatObj.x = obj[object.x];
-              page.drawText(`${i + 1}`, pageFormatObj);
-            } else {
-              page.drawText(`${i + 1}`, object);
-            }
-            pdfDoc.addPage(page);
-          });
-        const bytes = await pdfDoc.save();
-        const newBlob = Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
-        resolve(newBlob);
-      } catch (err) {
-        reject(err);
-      }
-    });
+    try {
+      const pdfData = this.getPDFObjectFromBlob_(pdfBlob);
+      const pdfDoc = await this.PDFLib.PDFDocument.create();
+      const pages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
+      pages.forEach((page, i) => {
+        let drawOptions = { ...object };
+        if (isNaN(drawOptions.x)) {
+          const { width } = page.getSize();
+          const xPositions = { center: width / 2, left: (drawOptions.size || 10), right: width - (drawOptions.size || 10) * ((i + 1).toString().length) - (drawOptions.size || 10) };
+          drawOptions.x = xPositions[object.x.toLowerCase()] || width / 2;
+        }
+        page.drawText(`${i + 1}`, drawOptions);
+        pdfDoc.addPage(page);
+      });
+      const bytes = await pdfDoc.save();
+      return Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
+    } catch (err) {
+      throw err;
+    }
   }
 
   /**
@@ -859,7 +851,7 @@ class PDFApp {
     const fieldName = `${k}.${pageNumber}`;
     const textBox = form.createTextField(fieldName);
     if (v.text) {
-      textBox.setText(v.text);
+      textBox.setText(v.text.toString().replace("{{pageNumber}}", pageNumber).replace("{{totalPages}}", form.doc.getPageCount()));
     }
     if (v.alignment) {
       textBox.setAlignment(self.PDFLib.TextAlignment[alignObj[v.alignment.toLowerCase()]]);
@@ -881,19 +873,19 @@ class PDFApp {
    */
   async createFields_(self, object) {
     const { obj, blob } = object;
-    const pdfDoc = await self.PDFLib.PDFDocument.create();
+    const pdfDoc = await this.PDFLib.PDFDocument.create();
     const form = pdfDoc.getForm();
     if (self.standardFont || self.customFont) {
       await self.setCustomFont_(pdfDoc, form, { standardFont: self.standardFont, customFont: self.customFont });
     }
-    const pdfData = await self.getPDFObjectFromBlob_(blob).catch(err => reject(err));
+    const pdfData = this.getPDFObjectFromBlob_(blob);
     const numberOfPages = pdfData.getPageCount();
-    const pages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
+    const sourcePages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
     const xAxisOffset = 0.5;
     const yAxisOffset = 0.5;
     for (let i = 0; i < numberOfPages; i++) {
       const pageNumber = i + 1;
-      const page = pdfDoc.addPage(pages[i]);
+      const page = pdfDoc.addPage(sourcePages[i]);
       const pageHeight = page.getHeight();
       const yOffset = pageHeight;
       obj[i].forEach((v, k) => {
@@ -907,7 +899,7 @@ class PDFApp {
           });
         } else if (k == "radiobutton") {
           v.forEach((t, kk) => {
-            const radio = form.createRadioGroup(`radiobutton.${kk}.page${pageNumber}`);
+            const radio = form.createRadioGroup(t[0].group ? `${t[0].group}.page${pageNumber}` : `radiobutton.${kk}.page${pageNumber}`);
             t.forEach(u => {
               radio.addOptionToPage(u.title, page, { x: u.leftOffset - xAxisOffset, y: yOffset - u.topOffset - u.height + yAxisOffset, width: u.width, height: u.height });
               self.setStyles_(radio, u);
@@ -955,20 +947,20 @@ class PDFApp {
    * @return {void}
    */
   async setCustomFont_(pdfDoc, form, { standardFont, customFont }) {
-    let customfont;
+    let embeddedFontRef;
     if (standardFont) {
-      customfont = await pdfDoc.embedFont(this.PDFLib.StandardFonts[standardFont]);
+      embeddedFontRef = await pdfDoc.embedFont(this.PDFLib.StandardFonts[standardFont]);
     } else if (customFont) {
+      if (!this.fontkit) throw new Error("Fontkit not loaded. Ensure useCustomFont is called or fontkit is provided if using custom fonts in setCustomFont_.");
       pdfDoc.registerFontkit(this.fontkit);
-      customfont = await pdfDoc.embedFont(new Uint8Array(customFont.getBytes()));
+      embeddedFontRef = await pdfDoc.embedFont(new Uint8Array(customFont.getBytes())); 
     }
 
     // Ref: https://github.com/Hopding/pdf-lib/issues/1152
     const rawUpdateFieldAppearances = form.updateFieldAppearances.bind(form);
     form.updateFieldAppearances = function () {
-      return rawUpdateFieldAppearances(customfont);
+      return rawUpdateFieldAppearances(embeddedFontRef);
     };
-
   }
 
   /**
@@ -1041,7 +1033,7 @@ class PDFApp {
     }, new Map());
     const duplicateCheck = [...duplicateCheckObj].filter(([_, v]) => v > 1);
     if (duplicateCheck.length > 0) {
-      temp.setTrashed(true);
+      DriveApp.getFileById(id).setTrashed(true);
       throw new Error(`Duplicate titles were found. The duplicated titles are "${duplicateCheck.map(([k]) => k).join(",")}".`);
     }
 
@@ -1069,7 +1061,7 @@ class PDFApp {
       if (e.imageFileId) {
         const imageBlob = DriveApp.getFileById(e.imageFileId).getBlob();
         const imageBytes = new Uint8Array(imageBlob.getBytes());
-        const mimeType = imageBlob.getContentType();
+        const mimeType = imageBlob.getContentType(); 
         let method;
         if (mimeType == MimeType.PNG) {
           method = "embedPng";
@@ -1093,43 +1085,13 @@ class PDFApp {
 
   /**
    * ### Description
-   * Load pdf-lib. https://pdf-lib.js.org/docs/api/classes/pdfdocument
-   *
-   * @return {void}
-   */
-  loadPdfLib_() {
-    this.loadJavascriptLibrary_(UrlFetchApp.fetch(this.cdnjs).getContentText().replace(/setTimeout\(.*?,.*?(\d*?)\)/g, "Utilities.sleep($1);return t();"));
-  }
-
-  /**
-   * ### Description
-   * Load fontkit. https://github.com/Hopding/fontkit
-   *
-   * @return {void}
-   */
-  loadFontkit_() {
-    this.loadJavascriptLibrary_(UrlFetchApp.fetch(this.cdnFontkit).getContentText());
-  }
-
-  /**
-   * ### Description
-   * Load Javascript library in Google Apps Script project.
-   *
-   * @param {String} jsLib Javascript library as a string.
-   * @return {void}
-   */
-  loadJavascriptLibrary_(jsLib) {
-    eval(jsLib);
-  }
-
-  /**
-   * ### Description
    * Get PDF object from PDF blob.
    *
    * @param {Object} blob PDF Blob retrieved by Google Apps Script.
    * @return {void}
    */
   async getPDFObjectFromBlob_(blob) {
+    if (!this.PDFLib) throw new Error("PDFLib not initialized on PDFApp instance.");
     return await this.PDFLib.PDFDocument.load(new Uint8Array(blob.getBytes()));
   }
 }
