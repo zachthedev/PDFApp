@@ -353,7 +353,7 @@ class PDFApp {
       throw new Error("Please set the page numbers you want to export.");
     }
     try {
-      const pdfData = this.getPDFObjectFromBlob_(pdfBlob);
+      const pdfData = await this.getPDFObjectFromBlob_(pdfBlob);
       const pdfDoc = await this.PDFLib.PDFDocument.create();
       const pages = await pdfDoc.copyPages(pdfData, pdfData.getPageIndices());
       pages.forEach((page, i) => {
