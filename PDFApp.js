@@ -18,23 +18,32 @@ async function _ensurePdfLibLoaded() {
     _PDFLib_Promise_ = new Promise(async (resolve, reject) => {
       try {
         const cdnjs = "https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js";
-        const originalSetTimeout = globalThis.setTimeout;
-        const originalClearTimeout = globalThis.clearTimeout;
-        globalThis.setTimeout = function(taskFn, delay, ...args) {
-          Utilities.sleep(delay || 1);
-          if (typeof taskFn === 'function') { taskFn(...args); }
-          return 0;
-        };
-        globalThis.clearTimeout = function() { };
+        if (typeof this.setTimeout === "undefined") {
+          this.setTimeout = function (callback, delay, ...args) {
+            if (delay && delay > 0) {
+              Utilities.sleep(delay); // Synchronous sleep
+            }
+            if (typeof callback === "function") {
+              return callback.apply(null, args);
+            }
+            return 0;
+          };
+        }
+
+        if (typeof this.clearTimeout === "undefined") {
+          this.clearTimeout = function (id) {};
+        }
         const jsLibContent = UrlFetchApp.fetch(cdnjs).getContentText();
         eval(jsLibContent);
-        globalThis.setTimeout = originalSetTimeout;
-        globalThis.clearTimeout = originalClearTimeout;
         if (!globalThis.PDFLib) throw new Error("Failed to load PDFLib from CDN: globalThis.PDFLib not defined.");
         _PDFLib_Instance_ = globalThis.PDFLib;
         delete globalThis.PDFLib;
         resolve(_PDFLib_Instance_);
-      } catch (e) { _PDFLib_Promise_ = null; console.error("Error loading PDFLib:", e); reject(e); }
+      } catch (e) {
+        _PDFLib_Promise_ = null;
+        console.error("Error loading PDFLib:", e);
+        reject(e);
+      }
     });
   }
   return _PDFLib_Promise_;
@@ -42,19 +51,22 @@ async function _ensurePdfLibLoaded() {
 
 async function _ensureFontkitLoaded() {
   if (_Fontkit_Instance_) return _Fontkit_Instance_;
-  if (!_Fontkit_Promise_) {
-    _Fontkit_Promise_ = new Promise(async (resolve, reject) => {
-      try {
-        const cdnFontkit = "https://unpkg.com/@pdf-lib/fontkit/dist/fontkit.umd.min.js";
-        const jsLibContent = UrlFetchApp.fetch(cdnFontkit).getContentText();
-        eval(jsLibContent);
-        if (!globalThis.fontkit) throw new Error("Failed to load Fontkit from CDN: globalThis.fontkit not defined.");
-        _Fontkit_Instance_ = globalThis.fontkit;
-        delete globalThis.fontkit;
-        resolve(_Fontkit_Instance_);
-      } catch (e) { _Fontkit_Promise_ = null; console.error("Error loading Fontkit:", e); reject(e); }
-    });
-  }
+  if (_Fontkit_Promise_) return await _Fontkit_Promise_;
+  _Fontkit_Promise_ = new Promise(async (resolve, reject) => {
+    try {
+      const cdnFontkit = "https://unpkg.com/@pdf-lib/fontkit/dist/fontkit.umd.min.js";
+      const jsLibContent = UrlFetchApp.fetch(cdnFontkit).getContentText();
+      eval(jsLibContent);
+      if (!globalThis.fontkit) throw new Error("Failed to load Fontkit from CDN: globalThis.fontkit not defined.");
+      _Fontkit_Instance_ = globalThis.fontkit;
+      delete globalThis.fontkit;
+      resolve(_Fontkit_Instance_);
+    } catch (e) {
+      _Fontkit_Promise_ = null;
+      console.error("Error loading Fontkit:", e);
+      reject(e);
+    }
+  });
   return _Fontkit_Promise_;
 }
 
@@ -261,7 +273,7 @@ async function embedObjects(object) {
     throw new Error("Please set the source PDF blob using the setPDFBlob method.");
   }
   const pdfLib = await _ensurePdfLibLoaded();
-  const fontkit = await _ensureFontkitLoaded(); 
+  const fontkit = await _ensureFontkitLoaded();
   const PDFA = new PDFApp(this._gPDFA_Config || {}, pdfLib, fontkit);
   return PDFA.embedObjects(this._gPDFA_Blob, object);
 }
@@ -431,7 +443,7 @@ class PDFApp {
       return Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
     } catch (err) {
       throw err;
-                }
+    }
   }
 
   /**
@@ -692,8 +704,8 @@ class PDFApp {
             }
           }
         }
-        pdfDoc.addPage(page); 
-      }                           
+        pdfDoc.addPage(page);
+      }
       const bytes = await pdfDoc.save();
       return Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
     } catch (e) { throw e; }
@@ -744,36 +756,36 @@ class PDFApp {
           for (let j = 0; j < headers.length; j++) {
             const [k, v] = headers[j];
             const o = {
-               borderWidth: v.borderWidth || 0,
-               x: j * sizeWidthHead,
-               y: pageHeight - ((v.yOffset || 0) + (v.height || 20)),
-               width: sizeWidthHead,
-               height: v.height || 30,
-               ...v,
-               font: embeddedFont
+              borderWidth: v.borderWidth || 0,
+              x: j * sizeWidthHead,
+              y: pageHeight - ((v.yOffset || 0) + (v.height || 20)),
+              width: sizeWidthHead,
+              height: v.height || 30,
+              ...v,
+              font: embeddedFont
             };
             await this.addHeaderFooterFields_(this, { page, form, pageNumber, k, v, o, alignObj, font: embeddedFont });
-            }
-          }
-          if (footers.length > 0) {
-            const sizeWidthFoot = pageWidth / (footers.length);
-            for (let j = 0; j < footers.length; j++) {
-              const [k, v] = footers[j];
-              const o = {
-               borderWidth: v.borderWidth || 0,
-               x: j * sizeWidthFoot,
-               y: v.yOffset || 0,
-               width: sizeWidthFoot,
-               height: v.height || 30,
-               ...v,
-               font: embeddedFont
-            };
-              await this.addHeaderFooterFields_(this, { page, form, pageNumber, k, v, o, alignObj, font: embeddedFont });
-            }
           }
         }
-        const bytes = await pdfDoc.save();
-        return Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
+        if (footers.length > 0) {
+          const sizeWidthFoot = pageWidth / (footers.length);
+          for (let j = 0; j < footers.length; j++) {
+            const [k, v] = footers[j];
+            const o = {
+              borderWidth: v.borderWidth || 0,
+              x: j * sizeWidthFoot,
+              y: v.yOffset || 0,
+              width: sizeWidthFoot,
+              height: v.height || 30,
+              ...v,
+              font: embeddedFont
+            };
+            await this.addHeaderFooterFields_(this, { page, form, pageNumber, k, v, o, alignObj, font: embeddedFont });
+          }
+        }
+      }
+      const bytes = await pdfDoc.save();
+      return Utilities.newBlob([...new Int8Array(bytes)], MimeType.PDF, `new_${pdfBlob.getName()}`);
     } catch (e) {
       throw e;
     }
@@ -953,7 +965,7 @@ class PDFApp {
     } else if (customFont) {
       if (!this.fontkit) throw new Error("Fontkit not loaded. Ensure useCustomFont is called or fontkit is provided if using custom fonts in setCustomFont_.");
       pdfDoc.registerFontkit(this.fontkit);
-      embeddedFontRef = await pdfDoc.embedFont(new Uint8Array(customFont.getBytes())); 
+      embeddedFontRef = await pdfDoc.embedFont(new Uint8Array(customFont.getBytes()));
     }
 
     // Ref: https://github.com/Hopding/pdf-lib/issues/1152
@@ -1061,7 +1073,7 @@ class PDFApp {
       if (e.imageFileId) {
         const imageBlob = DriveApp.getFileById(e.imageFileId).getBlob();
         const imageBytes = new Uint8Array(imageBlob.getBytes());
-        const mimeType = imageBlob.getContentType(); 
+        const mimeType = imageBlob.getContentType();
         let method;
         if (mimeType == MimeType.PNG) {
           method = "embedPng";
